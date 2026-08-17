@@ -65,6 +65,7 @@ function renderEntry(entry, allEntries) {
   const shareText = `${entry.title} — Palavra Diária\n${pageLink}`;
   document.getElementById('share-wa').href = `https://wa.me/?text=${encodeURIComponent(shareText)}`;
   document.getElementById('share-fb').href = `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(pageLink)}`;
+  document.getElementById('share-ig').dataset.shareText = shareText;
   document.getElementById('share-mail').href = `mailto:?subject=${encodeURIComponent('Palavra Diária: ' + entry.title)}&body=${encodeURIComponent(shareText)}`;
 
   const tagRow = document.getElementById('tag-row');
@@ -210,4 +211,19 @@ speedBtn.addEventListener('click', () => {
   speedIdx = (speedIdx + 1) % speeds.length;
   audio.playbackRate = speeds[speedIdx];
   speedBtn.textContent = speedLabels[speedIdx];
+});
+
+/* ---------- Compartilhar no Instagram (copiar link) ---------- */
+
+document.getElementById('share-ig').addEventListener('click', async (e) => {
+  const btn = e.currentTarget;
+  const text = btn.dataset.shareText || window.location.href;
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch (err) {
+    // navegador sem suporte a clipboard: seleciona o texto manualmente como alternativa
+    console.warn('Não foi possível copiar automaticamente', err);
+  }
+  btn.classList.add('copied');
+  setTimeout(() => btn.classList.remove('copied'), 2200);
 });

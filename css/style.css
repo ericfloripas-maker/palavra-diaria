@@ -126,12 +126,23 @@
 
   .share-row{display:flex; align-items:center; gap:10px; margin-bottom:20px;}
   .share-btn{
-    width:32px; height:32px; border-radius:50%; border:none; cursor:pointer;
-    display:flex; align-items:center; justify-content:center; color:#fff;
+    width:42px; height:42px; border-radius:50%; border:none; cursor:pointer;
+    display:flex; align-items:center; justify-content:center; color:#fff; position:relative;
   }
   .share-btn.wa{background:#25D366;}
   .share-btn.fb{background:#3B5998;}
-  .share-btn.x{background:#111;}
+  .share-btn.ig{background:radial-gradient(circle at 30% 110%, #fdf497 0%, #fdf497 5%, #fd5949 45%, #d6249f 60%, #285AEB 90%);}
+  .share-tooltip{
+    position:absolute; bottom:calc(100% + 10px); left:50%; transform:translateX(-50%);
+    background:var(--ink); color:#fff; font-family:var(--font-ui); font-size:.72rem;
+    padding:6px 12px; border-radius:6px; white-space:nowrap; opacity:0; pointer-events:none;
+    transition:opacity .2s ease;
+  }
+  .share-tooltip::after{
+    content:''; position:absolute; top:100%; left:50%; transform:translateX(-50%);
+    border:5px solid transparent; border-top-color:var(--ink);
+  }
+  .share-btn.ig.copied .share-tooltip{opacity:1;}
   .share-btn.mail{background:#6B6E64;}
 
   .tag-row{display:flex; flex-wrap:wrap; gap:8px;}
