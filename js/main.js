@@ -61,6 +61,13 @@ function renderEntry(entry, allEntries) {
 
   document.getElementById('author-name').textContent = entry.author || '';
 
+  const pageLink = `${window.location.origin}${window.location.pathname}?data=${entry.date}`;
+  const shareText = `${entry.title} — Palavra Diária\n${pageLink}`;
+  document.getElementById('share-wa').href = `https://wa.me/?text=${encodeURIComponent(shareText)}`;
+  document.getElementById('share-fb').href = `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(pageLink)}`;
+  document.getElementById('share-x').href = `https://twitter.com/intent/tweet?text=${encodeURIComponent(entry.title)}&url=${encodeURIComponent(pageLink)}`;
+  document.getElementById('share-mail').href = `mailto:?subject=${encodeURIComponent('Palavra Diária: ' + entry.title)}&body=${encodeURIComponent(shareText)}`;
+
   const tagRow = document.getElementById('tag-row');
   tagRow.innerHTML = '';
   (entry.tags || []).forEach(tag => {
