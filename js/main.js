@@ -65,7 +65,6 @@ function renderEntry(entry, allEntries) {
   const shareText = `${entry.title} — Palavra Diária\n${pageLink}`;
   document.getElementById('share-wa').href = `https://wa.me/?text=${encodeURIComponent(shareText)}`;
   document.getElementById('share-fb').href = `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(pageLink)}`;
-  document.getElementById('share-x').href = `https://twitter.com/intent/tweet?text=${encodeURIComponent(entry.title)}&url=${encodeURIComponent(pageLink)}`;
   document.getElementById('share-mail').href = `mailto:?subject=${encodeURIComponent('Palavra Diária: ' + entry.title)}&body=${encodeURIComponent(shareText)}`;
 
   const tagRow = document.getElementById('tag-row');
