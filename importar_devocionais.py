@@ -90,36 +90,58 @@ def titlecase_pt(text: str) -> str:
     return " ".join(result)
 
 
+FNAME_DATE_RE = re.compile(r"^(\d{4})-(\d{2})-(\d{2})-")
+VERSE_WITH_PAREN_REF_RE = re.compile(r"^(.*)\(([^)]+)\)\s*$", re.DOTALL)
+
+
 def parse_document(paragraphs: list[str], filename: str):
     if len(paragraphs) < 3:
         return None, f"{filename}: poucos parágrafos reconhecidos, pulando."
 
+    # 1) Data: preferimos a data no início do nome do arquivo (AAAA-MM-DD-...),
+    #    que é o padrão mais confiável e usado em todos os arquivos até agora.
+    fname_match = FNAME_DATE_RE.match(filename)
+    iso_date = f"{fname_match.group(1)}-{fname_match.group(2)}-{fname_match.group(3)}" if fname_match else None
+
     idx = 0
     explicit_title = None
-    if not DATE_RE.match(paragraphs[0]):
-        # primeira linha não é uma data: trate como título explícito do documento
+    if DATE_RE.match(paragraphs[0]):
+        # formato antigo: primeira linha do próprio documento é uma data DD/MM/AAAA
+        if not iso_date:
+            d = DATE_RE.match(paragraphs[0])
+            dd, mm, yyyy = d.groups()
+            iso_date = f"{yyyy}-{mm}-{dd}"
+        idx = 1
+    else:
         explicit_title = paragraphs[0].strip()
         idx = 1
 
-    if idx >= len(paragraphs) or not DATE_RE.match(paragraphs[idx]):
-        linha = paragraphs[idx][:40] if idx < len(paragraphs) else "(fim do documento)"
+    if not iso_date:
         return None, (
-            f"{filename}: não encontrei uma data no formato DD/MM/AAAA "
-            f"na linha {idx + 1} (achei: \"{linha}\"). Pulando."
+            f"{filename}: não encontrei uma data válida — nem no início do nome "
+            f"do arquivo (AAAA-MM-DD-...), nem como primeira linha do texto. Pulando."
         )
-    date_match = DATE_RE.match(paragraphs[idx])
-    dd, mm, yyyy = date_match.groups()
-    iso_date = f"{yyyy}-{mm}-{dd}"
-    idx += 1
 
-    if idx + 1 >= len(paragraphs):
-        return None, f"{filename}: documento incompleto após a data. Pulando."
+    if idx >= len(paragraphs):
+        return None, f"{filename}: documento incompleto após o título/data. Pulando."
 
-    verse_ref = paragraphs[idx]
-    idx += 1
-    verse_text = paragraphs[idx].translate(SUPERSCRIPT_DIGITS).strip()
-    verse_text = re.sub(r"\s*;\s*", "; ", verse_text)
-    idx += 1
+    # 2) Versículo + referência: podem vir de duas formas —
+    #    a) uma linha só, terminando com "(Referência)" entre parênteses
+    #    b) duas linhas separadas: referência, depois o texto do versículo
+    candidate = paragraphs[idx]
+    paren_match = VERSE_WITH_PAREN_REF_RE.match(candidate)
+    if paren_match:
+        verse_text = paren_match.group(1).strip().translate(SUPERSCRIPT_DIGITS).strip()
+        verse_text = re.sub(r"\s*;\s*", "; ", verse_text)
+        verse_ref = paren_match.group(2).strip()
+        idx += 1
+    else:
+        if idx + 1 >= len(paragraphs):
+            return None, f"{filename}: não consegui identificar o versículo e a referência. Pulando."
+        verse_ref = candidate
+        verse_text = paragraphs[idx + 1].translate(SUPERSCRIPT_DIGITS).strip()
+        verse_text = re.sub(r"\s*;\s*", "; ", verse_text)
+        idx += 2
 
     rest = paragraphs[idx:]
     reflection = []
@@ -133,9 +155,9 @@ def parse_document(paragraphs: list[str], filename: str):
             prayer = re.sub(r"^ora[çc][ãa]o:?\s*", "", p, flags=re.IGNORECASE).strip()
             # linha seguinte, se curta e sem terminar em pontuação forte, é o autor
             if i + 1 < len(rest):
-                candidate = rest[i + 1]
-                if len(candidate) <= 60 and not candidate.endswith((".", "!", "?")):
-                    author = candidate
+                candidate2 = rest[i + 1]
+                if len(candidate2) <= 60 and not candidate2.endswith((".", "!", "?")):
+                    author = candidate2
             break
         reflection.append(p)
         i += 1
