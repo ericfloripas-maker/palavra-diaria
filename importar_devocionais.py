@@ -36,7 +36,7 @@ from xml.sax.saxutils import unescape
 PROJECT_DIR = Path(__file__).parent
 TEXTOS_DIR = PROJECT_DIR / "textos"
 CATALOG_PATH = PROJECT_DIR / "devocionais.json"
-DEFAULT_AUTHOR = "Doriedson Doná"
+DEFAULT_AUTHOR = "Dori Edson Dona"
 
 DATE_RE = re.compile(r"^(\d{2})/(\d{2})/(\d{4})$")
 SUPERSCRIPT_DIGITS = str.maketrans("", "", "⁰¹²³⁴⁵⁶⁷⁸⁹")
@@ -75,24 +75,53 @@ def slugify(text: str) -> str:
     return text or "devocional"
 
 
+PT_LOWERCASE_WORDS = {"de", "da", "do", "das", "dos", "e", "a", "o", "as", "os",
+                       "em", "com", "para", "por", "no", "na", "nos", "nas", "um", "uma"}
+
+
+def titlecase_pt(text: str) -> str:
+    words = text.strip().lower().split()
+    result = []
+    for i, w in enumerate(words):
+        if i > 0 and w in PT_LOWERCASE_WORDS:
+            result.append(w)
+        else:
+            result.append(w[:1].upper() + w[1:])
+    return " ".join(result)
+
+
 def parse_document(paragraphs: list[str], filename: str):
     if len(paragraphs) < 3:
         return None, f"{filename}: poucos parágrafos reconhecidos, pulando."
 
-    date_match = DATE_RE.match(paragraphs[0])
-    if not date_match:
+    idx = 0
+    explicit_title = None
+    if not DATE_RE.match(paragraphs[0]):
+        # primeira linha não é uma data: trate como título explícito do documento
+        explicit_title = paragraphs[0].strip()
+        idx = 1
+
+    if idx >= len(paragraphs) or not DATE_RE.match(paragraphs[idx]):
+        linha = paragraphs[idx][:40] if idx < len(paragraphs) else "(fim do documento)"
         return None, (
             f"{filename}: não encontrei uma data no formato DD/MM/AAAA "
-            f"na primeira linha (achei: \"{paragraphs[0][:40]}\"). Pulando."
+            f"na linha {idx + 1} (achei: \"{linha}\"). Pulando."
         )
+    date_match = DATE_RE.match(paragraphs[idx])
     dd, mm, yyyy = date_match.groups()
     iso_date = f"{yyyy}-{mm}-{dd}"
+    idx += 1
 
-    verse_ref = paragraphs[1]
-    verse_text = paragraphs[2].translate(SUPERSCRIPT_DIGITS).strip()
+    if idx + 1 >= len(paragraphs):
+        return None, f"{filename}: documento incompleto após a data. Pulando."
+
+    verse_ref = paragraphs[idx]
+    idx += 1
+    verse_text = paragraphs[idx].translate(SUPERSCRIPT_DIGITS).strip()
     verse_text = re.sub(r"\s*;\s*", "; ", verse_text)
+    idx += 1
 
-    rest = paragraphs[3:]
+    rest = paragraphs[idx:]
     reflection = []
     prayer = None
     author = None
@@ -114,7 +143,12 @@ def parse_document(paragraphs: list[str], filename: str):
     if not reflection:
         return None, f"{filename}: não encontrei parágrafos de reflexão. Pulando."
 
-    title = f"Meditação em {verse_ref}"
+    if explicit_title:
+        title = titlecase_pt(explicit_title)
+        needs_review = False
+    else:
+        title = f"Meditação em {verse_ref}"
+        needs_review = True
     slug = slugify(title)
 
     entry = {
@@ -129,7 +163,7 @@ def parse_document(paragraphs: list[str], filename: str):
         "tags": [],
         "relatedThemes": [],
         "source": filename,
-        "needsTitleReview": True,
+        "needsTitleReview": needs_review,
     }
     if prayer:
         entry["prayer"] = prayer
@@ -197,10 +231,11 @@ def main():
 
     print(f"\n{len(added)} devocional(is) adicionado(s):")
     for e in added:
-        print(f"  • {e['date']}  {e['verseRef']:<20}  título provisório: \"{e['title']}\"")
+        rotulo = "título provisório" if e.get("needsTitleReview") else "título"
+        print(f"  • {e['date']}  {e['verseRef']:<20}  {rotulo}: \"{e['title']}\"")
         print(f"    áudio esperado: {e['audio']}")
 
-    if added:
+    if any(e.get("needsTitleReview") for e in added):
         print(
             "\n⚠ Revise o título de cada um acima no devocionais.json antes de publicar "
             "(procure needsTitleReview: true) — o script só consegue gerar um título "
