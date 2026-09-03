@@ -130,6 +130,12 @@ function renderResults(byYear, activeYear, activeMonth) {
 fetch('devocionais.json')
   .then(res => res.json())
   .then(entries => {
+    // Mostra somente devocionais ate a data de hoje (data local do navegador,
+    // para nao cortar o de hoje por causa de fuso horario/UTC).
+    const now = new Date();
+    const todayISO = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+    entries = entries.filter(entry => entry.date <= todayISO);
+
     const byYear = groupByYearMonth(entries);
     const years = Object.keys(byYear).sort((a, b) => b.localeCompare(a));
 
