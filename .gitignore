@@ -5,3 +5,6 @@ push_em_lotes.ps1
 verificar_calendario.py
 devocionais.json.bak
 devocionais.json.bak-*
+corrigir_audio.py
+diagnosticar_audio_sem_match.py
+corrigir_audio_manual.py

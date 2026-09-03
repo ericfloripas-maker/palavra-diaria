@@ -98,11 +98,13 @@ function renderEntry(entry, allEntries) {
   document.getElementById('time-total').textContent = '0:00';
   document.getElementById('progress-fill').style.width = '0%';
 
-  // Devocionais recentes (todos exceto o exibido agora, mais recentes primeiro)
+  // Devocionais recentes (todos exceto o exibido agora, mais recentes primeiro,
+  // e somente ate a data de hoje - nunca mostra devocionais futuros aqui)
   const recentList = document.getElementById('recent-list');
   recentList.innerHTML = '';
+  const today = todayISO();
   const others = allEntries
-    .filter(e => e.slug !== entry.slug)
+    .filter(e => e.slug !== entry.slug && e.date <= today)
     .sort((a, b) => b.date.localeCompare(a.date))
     .slice(0, 5);
   others.forEach(e => {
