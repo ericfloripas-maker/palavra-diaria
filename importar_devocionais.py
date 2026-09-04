@@ -4,25 +4,24 @@ Importador de devocionais para a Palavra Diária.
 
 O que faz:
 - Lê todo arquivo .odt (ou .docx) dentro da pasta textos/
-- Reconhece automaticamente: data, referência bíblica, versículo, parágrafos
-  de reflexão e oração, no mesmo formato que os documentos já usados
+- Reconhece automaticamente: data (do nome do arquivo), título, versículo,
+  referência bíblica, parágrafos de reflexão e oração
+- Sugere automaticamente 1-2 temas (tags) com base em palavras-chave do
+  texto — não é uma análise profunda, é um dicionário de temas comuns,
+  mas cobre a maioria dos casos sem precisar preencher na mão
 - Adiciona cada um como uma nova entrada em devocionais.json
 - Não duplica: se rodar de novo com os mesmos arquivos, eles são ignorados
 - Nunca apaga nada que já está no catálogo
 
 Como usar:
     1. Coloque os arquivos .odt (ou .docx) dentro da pasta textos/
-    2. No terminal do VS Code, rode:  python importar_devocionais.py
+    2. No terminal do VS Code, rode:  py importar_devocionais.py
     3. Leia o resumo no final — ele avisa quais devocionais precisam de
-       revisão de título antes de publicar
+       revisão de título ou tema antes de publicar
 
-Formato esperado de cada documento (um parágrafo por linha, nesta ordem):
-    DD/MM/AAAA
-    Referência bíblica (ex: Salmos 90:5,6)
-    Texto do versículo
-    (um ou mais parágrafos de reflexão)
-    Oração: texto da oração
-    (opcional) Nome do autor, sozinho na última linha
+Para preencher os temas de devocionais JÁ importados antes (que ficaram
+com "tags": [] vazio), rode:
+    py importar_devocionais.py --preencher-tags-existentes
 """
 
 import json
@@ -39,13 +38,76 @@ CATALOG_PATH = PROJECT_DIR / "devocionais.json"
 DEFAULT_AUTHOR = "Dori Edson Dona"
 
 DATE_RE = re.compile(r"^(\d{2})/(\d{2})/(\d{4})$")
+FNAME_DATE_RE = re.compile(r"^(\d{4})-(\d{2})-(\d{2})-")
+VERSE_WITH_PAREN_REF_RE = re.compile(r"^(.*)\(([^)]+)\)\s*$", re.DOTALL)
 SUPERSCRIPT_DIGITS = str.maketrans("", "", "⁰¹²³⁴⁵⁶⁷⁸⁹")
 
+PT_LOWERCASE_WORDS = {"de", "da", "do", "das", "dos", "e", "a", "o", "as", "os",
+                       "em", "com", "para", "por", "no", "na", "nos", "nas", "um", "uma"}
 
-def strip_tags(xml_text: str) -> list[str]:
-    """Converte o XML do documento numa lista de parágrafos de texto puro."""
+# --- dicionário de temas: tema -> palavras-chave que indicam esse tema ---
+# (tudo em minúsculo e sem acento; o texto é normalizado antes de comparar)
+TEMAS_PALAVRAS_CHAVE = {
+    "Eternidade": ["eternidade", "eterno", "eterna", "para sempre", "permanece", "perpetuo"],
+    "Soberania": ["soberano", "soberania", "autoridade", "dominio", "reina", "todo-poderoso", "onipotente"],
+    "Confianca": ["confia", "confianca", "confie", "confiar"],
+    "Fe": ["fe ", " fe.", "crer", "creio", "cre em", "acreditar"],
+    "Ansiedade": ["ansiedade", "ansioso", "ansiosa", "angustia", "afligido", "aflicao"],
+    "Perseveranca": ["persevera", "perseveranca", "resistir", "suportar", "firmeza"],
+    "Graca": ["graca", "misericordia", "perdao", "perdoa"],
+    "Oracao": ["oracao", "orar", "clama", "clamor", "suplica"],
+    "Obediencia": ["obedece", "obediencia", "submissao", "submeter"],
+    "Coragem": ["coragem", "corajoso", "temor", "nao temas", "destemido"],
+    "Sabedoria": ["sabedoria", "sabio", "entendimento", "discernimento"],
+    "Adoracao": ["adoracao", "adora", "louvor", "louva", "gloria a deus"],
+    "Justica": ["justica", "justo", "juizo", "julgamento"],
+    "Amor": ["amor", "amoroso", "ama a", "amai"],
+    "Esperanca": ["esperanca", "espera em", "aguarda"],
+    "Mortalidade": ["morte", "mortal", "po da terra", "efemero", "passageiro", "transitorio"],
+    "Provisao": ["provisao", "prove", "sustento", "sustenta"],
+    "Santidade": ["santidade", "santo", "consagracao", "puro", "pureza"],
+    "Humildade": ["humildade", "humilde", "humilhar", "soberba", "orgulho"],
+    "Gratidao": ["gratidao", "grato", "agradece", "acoes de gracas"],
+}
+
+
+def normalizar(texto: str) -> str:
+    texto = unicodedata.normalize("NFKD", texto)
+    texto = "".join(c for c in texto if not unicodedata.combining(c))
+    return texto.lower()
+
+
+def sugerir_tags(entry: dict, max_tags: int = 2) -> list:
+    """Sugere temas com base na contagem de palavras-chave no texto do devocional."""
+    texto_completo = normalizar(
+        entry.get("title", "") + " " +
+        entry.get("verseText", "") + " " +
+        " ".join(entry.get("reflection", []))
+    )
+    pontuacao = {}
+    for tema, palavras in TEMAS_PALAVRAS_CHAVE.items():
+        contagem = sum(texto_completo.count(normalizar(p)) for p in palavras)
+        if contagem > 0:
+            pontuacao[tema] = contagem
+
+    temas_ordenados = sorted(pontuacao.items(), key=lambda x: -x[1])
+    return [tema for tema, _ in temas_ordenados[:max_tags]]
+
+
+def titlecase_pt(text: str) -> str:
+    words = text.strip().lower().split()
+    result = []
+    for i, w in enumerate(words):
+        if i > 0 and w in PT_LOWERCASE_WORDS:
+            result.append(w)
+        else:
+            result.append(w[:1].upper() + w[1:])
+    return " ".join(result)
+
+
+def strip_tags(xml_text: str) -> list:
     xml_text = re.sub(r"<text:p[^>]*>", "\n§PARA§", xml_text)
-    xml_text = re.sub(r"<w:p[^>]*>", "\n§PARA§", xml_text)  # docx
+    xml_text = re.sub(r"<w:p[^>]*>", "\n§PARA§", xml_text)
     xml_text = re.sub(r"<[^>]+>", "", xml_text)
     text = unescape(xml_text)
     raw_paragraphs = text.split("§PARA§")
@@ -53,13 +115,13 @@ def strip_tags(xml_text: str) -> list[str]:
     return [p for p in paragraphs if p]
 
 
-def read_odt(path: Path) -> list[str]:
+def read_odt(path: Path) -> list:
     with zipfile.ZipFile(path) as z:
         xml_text = z.read("content.xml").decode("utf-8")
     return strip_tags(xml_text)
 
 
-def read_docx(path: Path) -> list[str]:
+def read_docx(path: Path) -> list:
     with zipfile.ZipFile(path) as z:
         xml_text = z.read("word/document.xml").decode("utf-8")
     return strip_tags(xml_text)
@@ -75,38 +137,16 @@ def slugify(text: str) -> str:
     return text or "devocional"
 
 
-PT_LOWERCASE_WORDS = {"de", "da", "do", "das", "dos", "e", "a", "o", "as", "os",
-                       "em", "com", "para", "por", "no", "na", "nos", "nas", "um", "uma"}
-
-
-def titlecase_pt(text: str) -> str:
-    words = text.strip().lower().split()
-    result = []
-    for i, w in enumerate(words):
-        if i > 0 and w in PT_LOWERCASE_WORDS:
-            result.append(w)
-        else:
-            result.append(w[:1].upper() + w[1:])
-    return " ".join(result)
-
-
-FNAME_DATE_RE = re.compile(r"^(\d{4})-(\d{2})-(\d{2})-")
-VERSE_WITH_PAREN_REF_RE = re.compile(r"^(.*)\(([^)]+)\)\s*$", re.DOTALL)
-
-
-def parse_document(paragraphs: list[str], filename: str):
+def parse_document(paragraphs: list, filename: str):
     if len(paragraphs) < 3:
         return None, f"{filename}: poucos parágrafos reconhecidos, pulando."
 
-    # 1) Data: preferimos a data no início do nome do arquivo (AAAA-MM-DD-...),
-    #    que é o padrão mais confiável e usado em todos os arquivos até agora.
     fname_match = FNAME_DATE_RE.match(filename)
     iso_date = f"{fname_match.group(1)}-{fname_match.group(2)}-{fname_match.group(3)}" if fname_match else None
 
     idx = 0
     explicit_title = None
     if DATE_RE.match(paragraphs[0]):
-        # formato antigo: primeira linha do próprio documento é uma data DD/MM/AAAA
         if not iso_date:
             d = DATE_RE.match(paragraphs[0])
             dd, mm, yyyy = d.groups()
@@ -125,9 +165,6 @@ def parse_document(paragraphs: list[str], filename: str):
     if idx >= len(paragraphs):
         return None, f"{filename}: documento incompleto após o título/data. Pulando."
 
-    # 2) Versículo + referência: podem vir de duas formas —
-    #    a) uma linha só, terminando com "(Referência)" entre parênteses
-    #    b) duas linhas separadas: referência, depois o texto do versículo
     candidate = paragraphs[idx]
     paren_match = VERSE_WITH_PAREN_REF_RE.match(candidate)
     if paren_match:
@@ -153,7 +190,6 @@ def parse_document(paragraphs: list[str], filename: str):
         p = rest[i]
         if p.lower().startswith("oração"):
             prayer = re.sub(r"^ora[çc][ãa]o:?\s*", "", p, flags=re.IGNORECASE).strip()
-            # linha seguinte, se curta e sem terminar em pontuação forte, é o autor
             if i + 1 < len(rest):
                 candidate2 = rest[i + 1]
                 if len(candidate2) <= 60 and not candidate2.endswith((".", "!", "?")):
@@ -190,10 +226,55 @@ def parse_document(paragraphs: list[str], filename: str):
     if prayer:
         entry["prayer"] = prayer
 
+    tags_sugeridas = sugerir_tags(entry, max_tags=2)
+    entry["tags"] = tags_sugeridas
+    entry["relatedThemes"] = sugerir_tags(entry, max_tags=5)
+    entry["needsTagReview"] = len(tags_sugeridas) == 0
+
     return entry, None
 
 
+def preencher_tags_existentes():
+    """Preenche tags automaticamente em entradas já existentes que estão com tags vazio."""
+    if not CATALOG_PATH.exists():
+        print("devocionais.json não encontrado.")
+        return
+
+    with open(CATALOG_PATH, encoding="utf-8") as f:
+        catalog = json.load(f)
+
+    atualizados = []
+    for entry in catalog:
+        if not entry.get("tags"):
+            sugeridas = sugerir_tags(entry, max_tags=2)
+            if sugeridas:
+                entry["tags"] = sugeridas
+                entry["relatedThemes"] = sugerir_tags(entry, max_tags=5)
+                entry["needsTagReview"] = False
+                atualizados.append((entry["date"], entry["title"], sugeridas))
+            else:
+                entry["needsTagReview"] = True
+
+    if atualizados:
+        with open(CATALOG_PATH, "w", encoding="utf-8") as f:
+            json.dump(catalog, f, ensure_ascii=False, indent=2)
+
+    print(f"\n{len(atualizados)} devocional(is) atualizado(s) com tags novas:")
+    for date, title, tags in atualizados:
+        print(f"  • {date}  {title}  → {', '.join('#' + t for t in tags)}")
+
+    sem_tag = [e for e in catalog if not e.get("tags")]
+    if sem_tag:
+        print(f"\n{len(sem_tag)} devocional(is) ainda sem tema identificado automaticamente:")
+        for e in sem_tag:
+            print(f"  • {e['date']}  {e['title']}  (marcar tema manualmente no JSON)")
+
+
 def main():
+    if len(sys.argv) > 1 and sys.argv[1] == "--preencher-tags-existentes":
+        preencher_tags_existentes()
+        return
+
     if not TEXTOS_DIR.exists():
         print(f"Pasta não encontrada: {TEXTOS_DIR}")
         sys.exit(1)
@@ -235,7 +316,6 @@ def main():
             errors.append(error)
             continue
 
-        # evita colisão de slug (dois devocionais com título default igual)
         base_slug = entry["slug"]
         counter = 2
         while entry["slug"] in existing_slugs:
@@ -255,13 +335,22 @@ def main():
     for e in added:
         rotulo = "título provisório" if e.get("needsTitleReview") else "título"
         print(f"  • {e['date']}  {e['verseRef']:<20}  {rotulo}: \"{e['title']}\"")
+        if e["tags"]:
+            print(f"    temas sugeridos: {', '.join('#' + t for t in e['tags'])}")
+        else:
+            print(f"    ⚠ nenhum tema reconhecido automaticamente — preencher \"tags\" manualmente")
         print(f"    áudio esperado: {e['audio']}")
 
     if any(e.get("needsTitleReview") for e in added):
         print(
             "\n⚠ Revise o título de cada um acima no devocionais.json antes de publicar "
-            "(procure needsTitleReview: true) — o script só consegue gerar um título "
-            "provisório, não um título editorial de verdade."
+            "(procure needsTitleReview: true)."
+        )
+
+    if any(e.get("needsTagReview") for e in added):
+        print(
+            "⚠ Alguns devocionais ficaram sem tema reconhecido automaticamente "
+            "(procure needsTagReview: true) — preencha \"tags\" manualmente nesses casos."
         )
 
     if skipped:
